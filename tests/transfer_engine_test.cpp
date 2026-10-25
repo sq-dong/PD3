@@ -7,6 +7,7 @@
 #include "catch2/catch_test_macros.hpp"
 
 #include "types/rdma_protocol.hpp"
+#include "local_test_config.hpp"
 
 #include <thread>
 #include <chrono>
@@ -27,14 +28,10 @@ TEST_CASE("TransferEngine Construction", "[transfer_engine]") {
 TEST_CASE("TransferEngine Prefetching no DMA", "[transfer_engine]") {
   TransferEngine transfer_engine;
   TransferEngineConfig config;
-  config.use_rdma = true;
-  config.local_addr = "10.10.1.203"; // this is on the DPU
-  config.server_addr = "10.10.1.101";
-  config.server_port = "51216";
+  pd3_local::ApplyDpuNoDma(config);
   config.num_slots = 8;
   config.num_prefetch_slots = 8;
   config.slot_size = 8192 + 8;
-  config.testing_mode = true;
   transfer_engine.InitializeNoDma(config);
 
   const size_t QUEUE_DEPTH = 1024;
@@ -97,10 +94,7 @@ TEST_CASE("TransferEngine Prefetching Throughput", "[transfer_engine_tput]")
 {
   TransferEngine transfer_engine;
   TransferEngineConfig config;
-  config.use_rdma = true;
-  config.local_addr = "10.10.1.203"; // this is on the DPU
-  config.server_addr = "10.10.1.101";
-  config.server_port = "51216";
+  pd3_local::ApplyDpuNoDma(config);
   config.num_slots = 8;
   config.num_prefetch_slots = 8;
   config.slot_size = 8192 * 2;
@@ -149,26 +143,8 @@ TEST_CASE("TransferEngine Prefetching with DMA Correctness", "[transfer_engine_d
   // IMPORTANT: this must be run on the DPU
   TransferEngine transfer_engine;
   TransferEngineConfig config;
-
-  // rdma server config params
-  config.local_addr = "10.10.1.203"; // this is on the DPU
-  config.server_addr = "10.10.1.101";
-  config.server_port = "51216";
+  pd3_local::ApplyDpuWithAgent(config);
   config.max_wr = 1024;
-  config.use_rdma = true;
-
-  // dpu config params
-  config.dpu_pcie_addr = "03:00.0";
-
-  // dma config params
-  config.export_desc_client_file_path = "/home/ubuntu/export_desc_client";
-  config.export_desc_agent_file_path = "/home/ubuntu/agent_export_desc";
-  config.buf_client_file_path = "/home/ubuntu/buf_client.txt";
-  config.buf_agent_file_path = "/home/ubuntu/agent_buf_details.txt";
-  config.enable_transfer = false;
-  config.enable_agent = true;
-
-  // buffer config params
   config.num_slots = 8;
   config.num_prefetch_slots = 8;
   config.slot_size = 8192 * 2;
@@ -216,24 +192,8 @@ TEST_CASE("TransferEngine DMA Prefetching Throughput", "[transfer_engine_dma_tpu
   */
   TransferEngine transfer_engine;
   TransferEngineConfig config;
-
-  // rdma server config params
-  config.local_addr = "10.10.2.201"; // this is on the DPU
-  config.server_addr = "10.10.2.100";
-  config.server_port = "51216";
+  pd3_local::ApplyDpuWithAgent(config);
   config.max_wr = 1024;
-  config.use_rdma = true;
-
-  // dpu config params
-  config.dpu_pcie_addr = "03:00.0";
-
-  // dma config params
-  config.export_desc_client_file_path = "/home/ubuntu/export_desc_client";
-  config.export_desc_agent_file_path = "/home/ubuntu/agent_export_desc";
-  config.buf_client_file_path = "/home/ubuntu/buf_client.txt";
-  config.buf_agent_file_path = "/home/ubuntu/agent_buf_details.txt";
-  config.enable_transfer = false;
-  config.enable_agent = true;
 
   // buffer config params
   config.num_slots = 8;
@@ -295,24 +255,14 @@ TEST_CASE("TransferEngine DMA Prefetching and TE Reads Throughput", "[transfer_e
   */
   TransferEngine transfer_engine;
   TransferEngineConfig config;
-
-  // rdma server config params
-  config.local_addr = "10.10.2.201"; // this is on the DPU
-  config.server_addr = "10.10.2.100";
-  config.server_port = "51216";
+  pd3_local::ApplyDpuTransferEngine(config);
+  {
+    const auto dir = pd3_local::DpuRuntimeDir();
+    config.enable_agent = true;
+    config.export_desc_agent_file_path = pd3_local::Join(dir, "agent_export_desc");
+    config.buf_agent_file_path = pd3_local::Join(dir, "agent_buf_details.txt");
+  }
   config.max_wr = 1024;
-  config.use_rdma = true;
-
-  // dpu config params
-  config.dpu_pcie_addr = "03:00.0";
-
-  // dma config params
-  config.export_desc_client_file_path = "/home/ubuntu/tc_export_desc";
-  config.export_desc_agent_file_path = "/home/ubuntu/agent_export_desc";
-  config.buf_client_file_path = "/home/ubuntu/tc_buf_details.txt";
-  config.buf_agent_file_path = "/home/ubuntu/agent_buf_details.txt";
-  config.enable_transfer = true;
-  config.enable_agent = true;
 
   // buffer config params
   config.num_slots = 8;
@@ -402,20 +352,11 @@ TEST_CASE("TransferEngine Refresh Test 1", "[transfer_engine_ref][r1]")
   // single sharded refresh, 10 requests from the host
   TransferEngine engine;
   TransferEngineConfig config;
-  config.buf_agent_file_path = "";
-  config.buf_client_file_path = "/home/ubuntu/tc_buf_details.txt";
-  config.dpu_pcie_addr = "03:00.0";
-  config.enable_agent = false;
-  config.enable_transfer = true;
-  config.export_desc_agent_file_path = "";
-  config.export_desc_client_file_path = "/home/ubuntu/tc_export_desc";
+  pd3_local::ApplyDpuTransferEngine(config);
   config.max_wr = 2048;
   config.num_prefetch_slots = 8;
   config.num_slots = 8;
-  config.server_addr = "10.10.2.100";
-  config.server_port = "51216";
   config.slot_size = 16384*2;
-  config.use_rdma = true;
 
   HostViewRefresher refresher;
   refresher.Initialize(1, 4, 16);
@@ -442,6 +383,8 @@ TEST_CASE("TransferEngine Refresh Test 1", "[transfer_engine_ref][r1]")
     for (int i = 0; i < 10; ++i) {
       CHECK(batch->requests[i] == i + 1);
     }
+    batch->size = 0;
+    batch->bytes = 0;
     ref_q->pop();
     break; 
   }
@@ -454,20 +397,11 @@ TEST_CASE("TransferEngine Refresh Test 2", "[transfer_engine_ref][r2]")
   // single sharded refresh, 10 write requests from the host, 10 read requests in separate batches
   TransferEngine engine;
   TransferEngineConfig config;
-  config.buf_agent_file_path = "";
-  config.buf_client_file_path = "/home/ubuntu/tc_buf_details.txt";
-  config.dpu_pcie_addr = "03:00.0";
-  config.enable_agent = false;
-  config.enable_transfer = true;
-  config.export_desc_agent_file_path = "";
-  config.export_desc_client_file_path = "/home/ubuntu/tc_export_desc";
+  pd3_local::ApplyDpuTransferEngine(config);
   config.max_wr = 2048;
   config.num_prefetch_slots = 8;
   config.num_slots = 8;
-  config.server_addr = "10.10.2.100";
-  config.server_port = "51216";
   config.slot_size = 16384*2;
-  config.use_rdma = true;
 
   HostViewRefresher refresher;
   refresher.Initialize(1, 4, 16);
@@ -499,6 +433,8 @@ TEST_CASE("TransferEngine Refresh Test 2", "[transfer_engine_ref][r2]")
     for (int i = 0; i < 10; ++i) {
       CHECK(batch->requests[i] == i + 1);
     }
+    batch->size = 0;
+    batch->bytes = 0;
     ref_q->pop();
     cnt++;
   }
@@ -512,20 +448,11 @@ TEST_CASE("TransferEngine Refresh Test 3", "[transfer_engine_ref][r3]")
   // single sharded refresh, 10 write requests, 10 read requests in a single batch
   TransferEngine engine;
   TransferEngineConfig config;
-  config.buf_agent_file_path = "";
-  config.buf_client_file_path = "/home/ubuntu/tc_buf_details.txt";
-  config.dpu_pcie_addr = "03:00.0";
-  config.enable_agent = false;
-  config.enable_transfer = true;
-  config.export_desc_agent_file_path = "";
-  config.export_desc_client_file_path = "/home/ubuntu/tc_export_desc";
+  pd3_local::ApplyDpuTransferEngine(config);
   config.max_wr = 2048;
   config.num_prefetch_slots = 8;
   config.num_slots = 8;
-  config.server_addr = "10.10.2.100";
-  config.server_port = "51216";
   config.slot_size = 16384*2;
-  config.use_rdma = true;
 
   HostViewRefresher refresher;
   refresher.Initialize(1, 4, 16);
@@ -557,6 +484,8 @@ TEST_CASE("TransferEngine Refresh Test 3", "[transfer_engine_ref][r3]")
     for (int i = 0; i < 10; ++i) {
       CHECK(batch->requests[i] == i + 1);
     }
+    batch->size = 0;
+    batch->bytes = 0;
     ref_q->pop();
     cnt++;
   }

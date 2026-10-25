@@ -29,6 +29,13 @@ TEST_CASE("Prefetcher Construction", "[prefetcher]")
 
 TEST_CASE("Prefetcher Correctness 2 Shards", "[pre2][corr]")
 {
+
+#ifndef __aarch64__
+  // Host-view lookup / prefetch emit in Prefetcher::ProcessClientRequestBatch is
+  // compiled only under __aarch64__. On x86 the prefetch queues stay empty and
+  // sim_te.join() waits forever for NUM_PREFETCH_REQUESTS. Skip on host builds.
+  SKIP("requires aarch64 Host View path (DPU); empty prefetch queues hang on x86");
+#endif
   Prefetcher prefetcher;
   JSON config;
   config["prefetcher"] = {
@@ -64,6 +71,13 @@ TEST_CASE("Prefetcher Correctness 2 Shards", "[pre2][corr]")
 
 TEST_CASE("Prefetcher Throughput 1 Shards", "[pre1][tput]")
 {
+
+#ifndef __aarch64__
+  // Host-view lookup / prefetch emit in Prefetcher::ProcessClientRequestBatch is
+  // compiled only under __aarch64__. On x86 the prefetch queues stay empty and
+  // sim_te.join() waits forever for NUM_PREFETCH_REQUESTS. Skip on host builds.
+  SKIP("requires aarch64 Host View path (DPU); empty prefetch queues hang on x86");
+#endif
   Prefetcher prefetcher;
   JSON config;
   config["prefetcher"] = {
@@ -105,17 +119,51 @@ TEST_CASE("Prefetcher Throughput 1 Shards", "[pre1][tput]")
     auto prefetch_queues = prefetcher.GetPrefetchQueues();
     size_t iter = 0;
 
-    while (count < NUM_PREFETCH_REQUESTS) {
+    // Original drain loop waited forever if prefetch batches were never produced
+    // (e.g. x86 host) or if progress stalled. Keep original commented below.
+    // while (count < NUM_PREFETCH_REQUESTS) {
+    //   bool cpu_pause = true;
+    //   for (int i = 0; i < prefetch_queues.size(); i++) {
+    //     auto output_pipe = prefetch_queues[i];
+    //     PrefetchRequestBatch** batch = output_pipe->front();
+    //     if (batch) {
+    //       auto batch_ptr = *batch;
+    //       output_pipe->pop();
+    //       count += batch_ptr->size;
+    //       cpu_pause = false;
+    //     }
+    //   }
+    //   if (cpu_pause) {
+    //     CpuPause();
+    //   }
+    // }
+    // end_ts = GetTimestamp();
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    uint64_t last_count = 0;
+    auto last_progress = std::chrono::steady_clock::now();
+    while (count < static_cast<uint64_t>(NUM_PREFETCH_REQUESTS)) {
       bool cpu_pause = true;
-      for (int i = 0; i < prefetch_queues.size(); i++) {
+      for (size_t i = 0; i < prefetch_queues.size(); i++) {
         auto output_pipe = prefetch_queues[i];
         PrefetchRequestBatch** batch = output_pipe->front();
         if (batch) {
           auto batch_ptr = *batch;
           output_pipe->pop();
           count += batch_ptr->size;
+          // Recycle batch slot so the producer ring can reuse it after wrap.
+          batch_ptr->size = 0;
           cpu_pause = false;
         }
+      }
+      auto now = std::chrono::steady_clock::now();
+      if (count != last_count) {
+        last_count = count;
+        last_progress = now;
+      } else if (now - last_progress > std::chrono::seconds(5) || now > deadline) {
+        FAIL("Prefetcher throughput drain stalled: got " << count
+             << " / " << NUM_PREFETCH_REQUESTS
+             << " (Host View emit is aarch64-only; also check batch recycle)");
+        break;
       }
       if (cpu_pause) {
         CpuPause();
@@ -154,6 +202,13 @@ TEST_CASE("Prefetcher Throughput 1 Shards", "[pre1][tput]")
 
 TEST_CASE("Prefetcher Throughput 2 Shards", "[pre2][tput]")
 {
+
+#ifndef __aarch64__
+  // Host-view lookup / prefetch emit in Prefetcher::ProcessClientRequestBatch is
+  // compiled only under __aarch64__. On x86 the prefetch queues stay empty and
+  // sim_te.join() waits forever for NUM_PREFETCH_REQUESTS. Skip on host builds.
+  SKIP("requires aarch64 Host View path (DPU); empty prefetch queues hang on x86");
+#endif
   Prefetcher prefetcher;
   JSON config;
   config["prefetcher"] = {
@@ -195,17 +250,51 @@ TEST_CASE("Prefetcher Throughput 2 Shards", "[pre2][tput]")
     auto prefetch_queues = prefetcher.GetPrefetchQueues();
     size_t iter = 0;
 
-    while (count < NUM_PREFETCH_REQUESTS) {
+    // Original drain loop waited forever if prefetch batches were never produced
+    // (e.g. x86 host) or if progress stalled. Keep original commented below.
+    // while (count < NUM_PREFETCH_REQUESTS) {
+    //   bool cpu_pause = true;
+    //   for (int i = 0; i < prefetch_queues.size(); i++) {
+    //     auto output_pipe = prefetch_queues[i];
+    //     PrefetchRequestBatch** batch = output_pipe->front();
+    //     if (batch) {
+    //       auto batch_ptr = *batch;
+    //       output_pipe->pop();
+    //       count += batch_ptr->size;
+    //       cpu_pause = false;
+    //     }
+    //   }
+    //   if (cpu_pause) {
+    //     CpuPause();
+    //   }
+    // }
+    // end_ts = GetTimestamp();
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    uint64_t last_count = 0;
+    auto last_progress = std::chrono::steady_clock::now();
+    while (count < static_cast<uint64_t>(NUM_PREFETCH_REQUESTS)) {
       bool cpu_pause = true;
-      for (int i = 0; i < prefetch_queues.size(); i++) {
+      for (size_t i = 0; i < prefetch_queues.size(); i++) {
         auto output_pipe = prefetch_queues[i];
         PrefetchRequestBatch** batch = output_pipe->front();
         if (batch) {
           auto batch_ptr = *batch;
           output_pipe->pop();
           count += batch_ptr->size;
+          // Recycle batch slot so the producer ring can reuse it after wrap.
+          batch_ptr->size = 0;
           cpu_pause = false;
         }
+      }
+      auto now = std::chrono::steady_clock::now();
+      if (count != last_count) {
+        last_count = count;
+        last_progress = now;
+      } else if (now - last_progress > std::chrono::seconds(5) || now > deadline) {
+        FAIL("Prefetcher throughput drain stalled: got " << count
+             << " / " << NUM_PREFETCH_REQUESTS
+             << " (Host View emit is aarch64-only; also check batch recycle)");
+        break;
       }
       if (cpu_pause) {
         CpuPause();
@@ -244,6 +333,13 @@ TEST_CASE("Prefetcher Throughput 2 Shards", "[pre2][tput]")
 
 TEST_CASE("Prefetcher Throughput 3 Shards", "[pre3][tput]")
 {
+
+#ifndef __aarch64__
+  // Host-view lookup / prefetch emit in Prefetcher::ProcessClientRequestBatch is
+  // compiled only under __aarch64__. On x86 the prefetch queues stay empty and
+  // sim_te.join() waits forever for NUM_PREFETCH_REQUESTS. Skip on host builds.
+  SKIP("requires aarch64 Host View path (DPU); empty prefetch queues hang on x86");
+#endif
   Prefetcher prefetcher;
   JSON config;
   config["prefetcher"] = {
@@ -286,17 +382,51 @@ TEST_CASE("Prefetcher Throughput 3 Shards", "[pre3][tput]")
     auto prefetch_queues = prefetcher.GetPrefetchQueues();
     size_t iter = 0;
 
-    while (count < NUM_PREFETCH_REQUESTS) {
+    // Original drain loop waited forever if prefetch batches were never produced
+    // (e.g. x86 host) or if progress stalled. Keep original commented below.
+    // while (count < NUM_PREFETCH_REQUESTS) {
+    //   bool cpu_pause = true;
+    //   for (int i = 0; i < prefetch_queues.size(); i++) {
+    //     auto output_pipe = prefetch_queues[i];
+    //     PrefetchRequestBatch** batch = output_pipe->front();
+    //     if (batch) {
+    //       auto batch_ptr = *batch;
+    //       output_pipe->pop();
+    //       count += batch_ptr->size;
+    //       cpu_pause = false;
+    //     }
+    //   }
+    //   if (cpu_pause) {
+    //     CpuPause();
+    //   }
+    // }
+    // end_ts = GetTimestamp();
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    uint64_t last_count = 0;
+    auto last_progress = std::chrono::steady_clock::now();
+    while (count < static_cast<uint64_t>(NUM_PREFETCH_REQUESTS)) {
       bool cpu_pause = true;
-      for (int i = 0; i < prefetch_queues.size(); i++) {
+      for (size_t i = 0; i < prefetch_queues.size(); i++) {
         auto output_pipe = prefetch_queues[i];
         PrefetchRequestBatch** batch = output_pipe->front();
         if (batch) {
           auto batch_ptr = *batch;
           output_pipe->pop();
           count += batch_ptr->size;
+          // Recycle batch slot so the producer ring can reuse it after wrap.
+          batch_ptr->size = 0;
           cpu_pause = false;
         }
+      }
+      auto now = std::chrono::steady_clock::now();
+      if (count != last_count) {
+        last_count = count;
+        last_progress = now;
+      } else if (now - last_progress > std::chrono::seconds(5) || now > deadline) {
+        FAIL("Prefetcher throughput drain stalled: got " << count
+             << " / " << NUM_PREFETCH_REQUESTS
+             << " (Host View emit is aarch64-only; also check batch recycle)");
+        break;
       }
       if (cpu_pause) {
         CpuPause();

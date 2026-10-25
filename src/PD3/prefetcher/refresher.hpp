@@ -5,6 +5,7 @@
 #include "PD3/network_engine/client_types.hpp"
 #include "PD3/system/logger.hpp"
 
+#include <thread>
 #include <vector>
 
 namespace dpf {
@@ -71,6 +72,22 @@ public:
     scoped_mode_ = read;
   }
 
+  // Advance to the next preallocated batch; wait until the consumer has
+  // cleared size (see te/main.cpp / Prefetcher::ProcessRefreshRequestBatch).
+  // Previously we advanced *before* try_push and never reset size → on wrap
+  // (Many Requests) producer wrote requests[capacity] and TE SEGV'd in
+  // HandleReadRefresh (si_addr near 0x8/0x9).
+  void AdvanceToFreeBatch(RefreshShard& shard)
+  {
+    shard.refresh_req_batch_idx =
+        (shard.refresh_req_batch_idx + 1) % shard.refresh_req_batches.size();
+    auto* next = shard.refresh_req_batches[shard.refresh_req_batch_idx];
+    while (next->size != 0) {
+      std::this_thread::yield();
+    }
+    next->bytes = 0;
+  }
+
   void PassRefreshRequest(ClientRequestT req)
   {
     auto shard_id = req % num_shards_; // TODO: optimize
@@ -80,15 +97,11 @@ public:
     batch->bytes += sizeof(req);
     batch->is_read = scoped_mode_;
     if (batch->size == batch->capacity) {
-      // send the batch to the prefetcher thread
-      shard.refresh_req_batch_idx = (shard.refresh_req_batch_idx + 1) % shard.refresh_req_batches.size();
-      // TODO: reset the batch ids
-      if (!shard.refresh_req_batch_q->try_push(batch)) {
-        std::cout << "Failed to push host view refresh batch to prefetcher thread\n";
-        return;
+      while (!shard.refresh_req_batch_q->try_push(batch)) {
+        std::this_thread::yield();
       }
+      AdvanceToFreeBatch(shard);
     }
-    return;
   }
 
   void FlushRefreshRequest()
@@ -97,12 +110,10 @@ public:
       auto curr_batch = shard.refresh_req_batches[shard.refresh_req_batch_idx];
       curr_batch->is_read = scoped_mode_;
       if (curr_batch->size > 0) {
-        // send to the prefetcher queue
-        shard.refresh_req_batch_idx = (shard.refresh_req_batch_idx + 1) % shard.refresh_req_batches.size();
-        if (!shard.refresh_req_batch_q->try_push(curr_batch)) {
-          std::cout << "Failed to push host view refresh batch to prefetcher thread\n";
-          return;
+        while (!shard.refresh_req_batch_q->try_push(curr_batch)) {
+          std::this_thread::yield();
         }
+        AdvanceToFreeBatch(shard);
       }
     }
   }

@@ -10,6 +10,8 @@
 #include "user_defined/garnet.hpp"
 
 #include <infiniband/verbs.h>
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <unistd.h>
 
@@ -175,6 +177,11 @@ TransferEngine::~TransferEngine()
     delete job;
   }
   all_jobs_.clear();
+  if (agent_buffer_dpu_addr_ != nullptr) {
+    free(agent_buffer_dpu_addr_);
+    agent_buffer_dpu_addr_ = nullptr;
+    host_agent_meta_ = nullptr;
+  }
   // TODO: destroy RDMA resources
   // TODO: destroy DMA resources
   // TODO: clean up memory
@@ -184,8 +191,11 @@ bool TransferEngine::Initialize(const TransferEngineConfig& config)
 {
   config_ = config;
   std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
-  bool all_files_exist = true;
+  // Upstream bug: all_files_exist was sticky-false — once any poll missed a file,
+  // later arrivals (scp host→DPU) were ignored until the 60s timeout.
+  bool all_files_exist = false;
   do {
+    all_files_exist = true;
     if (config.enable_transfer && !FileExists(config.export_desc_client_file_path)) {
       all_files_exist = false;
     }
@@ -197,6 +207,9 @@ bool TransferEngine::Initialize(const TransferEngineConfig& config)
     }
     if (config.enable_agent && !FileExists(config.buf_agent_file_path)) {
       all_files_exist = false;
+    }
+    if (all_files_exist) {
+      break;
     }
     if (std::chrono::steady_clock::now() - start_time > std::chrono::seconds(60)) {
       throw std::runtime_error("Failed to receive files for one minute (60 seconds)");
@@ -535,15 +548,18 @@ bool TransferEngine::InitializeDma()
   if (config_.enable_agent) {
     size_t agent_mmap_desc_len;
     char agent_mmap_desc[1024] = {0};
-    char* agent_buffer_addr;
-    size_t agent_buffer_len;
-    SaveConfigsIntoState(config_.export_desc_agent_file_path,
+    char* agent_buffer_addr = nullptr;
+    size_t agent_buffer_len = 0;
+    if (!SaveConfigsIntoState(config_.export_desc_agent_file_path,
                         config_.buf_agent_file_path,
                         &agent_mmap_desc_len,
                         agent_mmap_desc,
                         &agent_buffer_addr,
                         &agent_buffer_len,
-                        nullptr, nullptr);
+                        nullptr, nullptr)) {
+      LOG_ERROR("could not load agent export/buf details");
+      return false;
+    }
     CHECK_DOCA(doca_mmap_create_from_export(NULL, 
                                             (const void*)agent_mmap_desc, 
                                             agent_mmap_desc_len,
@@ -551,6 +567,26 @@ bool TransferEngine::InitializeDma()
                                             &agent_mmap_));
     agent_buffer_addr_ = agent_buffer_addr;
     agent_buffer_len_ = agent_buffer_len;
+
+    // Upstream never set these: AgentDataRead uses agent_buffer_dpu_addr_ as DMA
+    // destination, and AgentBufferMetadataWrite dereferences host_agent_meta_
+    // through dst_mmap. Without a DPU-local AgentBuffer + dst_mmap memrange,
+    // DMA Correctness SEGV right after / during Run().
+    if (agent_buffer_len_ == 0) {
+      agent_buffer_len_ = round_up_64(sizeof(dpf::buffer::AgentBuffer));
+    }
+    agent_buffer_dpu_addr_ = static_cast<char*>(aligned_alloc(64, agent_buffer_len_));
+    if (!agent_buffer_dpu_addr_) {
+      LOG_ERRORF("could not allocate DPU agent buffer ({}B)", agent_buffer_len_);
+      return false;
+    }
+    std::memset(agent_buffer_dpu_addr_, 0, agent_buffer_len_);
+    CHECK_DOCA(doca_mmap_set_memrange(doca_state_.dst_mmap, agent_buffer_dpu_addr_, agent_buffer_len_));
+    CHECK_DOCA(doca_mmap_start(doca_state_.dst_mmap));
+    // Staging metadata lives at the start of the local mirror (same layout as
+    // AgentBuffer's leading CacheAligned producer field / BufferMetadata).
+    host_agent_meta_ = reinterpret_cast<BufferMetadata*>(agent_buffer_dpu_addr_);
+    LOG_INFOF("DPU agent buffer ready at {} ({}B)", static_cast<void*>(agent_buffer_dpu_addr_), agent_buffer_len_);
   }
   
   LOG_INFO("Creating slots and metadata");
@@ -1719,11 +1755,12 @@ bool TransferEngine::AgentDataWrite(uint32_t slot_idx)
 
   const size_t TRANSFER_SIZE = bytes_to_write;
 
-  auto remaining_space = PD3_RING_BUFFER_SIZE - producer_pos;
-  if (TRANSFER_SIZE > remaining_space) {
-    // we will need to do two writes
-    // TODO
-  }
+  // Conflicts with size_t remaining_space above; wrap handled via remaining_space_before_wrap.
+  // auto remaining_space = PD3_RING_BUFFER_SIZE - producer_pos;
+  // if (TRANSFER_SIZE > remaining_space) {
+  //   // we will need to do two writes
+  //   // TODO
+  // }
 
   dma_job->user_event_type = AGENT_BUFFER_DATA_WRITE;
 

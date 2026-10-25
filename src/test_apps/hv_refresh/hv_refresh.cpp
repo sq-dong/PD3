@@ -2,6 +2,7 @@
 #include "PD3/transfer_engine/transfer_client.hpp"
 #include "PD3/transfer_engine/types.hpp"
 #include "PD3/prefetcher/types.hpp"
+#include "local_test_config.hpp"
 
 #include <iostream>
 #include <strings.h>
@@ -152,9 +153,7 @@ int main(int argc, char** argv)
 
   TransferClient client;
   TransferClientConfig config;
-  config.pcie_address = "21:00.0";
-  config.mmap_export_path = "/data/ssankhe/tc_export_desc";
-  config.buf_details_path = "/data/ssankhe/tc_buf_details.txt";
+  pd3_local::ApplyHostTransferClient(config);
   client.Initialize(config);
 
   switch (test_num) {

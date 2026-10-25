@@ -2,6 +2,7 @@
 #include "PD3/transfer_engine/transfer_client.hpp"
 #include "PD3/transfer_engine/types.hpp"
 #include "PD3/prefetcher/types.hpp"
+#include "local_test_config.hpp"
 
 #include "catch2/catch_test_macros.hpp"
 
@@ -31,9 +32,7 @@ TEST_CASE("TransferClient One Read/Write Request", "[transfer_client][one]")
 {
   TransferClient client;
   TransferClientConfig config;
-  config.pcie_address = "21:00.0";
-  config.mmap_export_path = "/data/ssankhe/tc_export_desc";
-  config.buf_details_path = "/data/ssankhe/tc_buf_details.txt";
+  pd3_local::ApplyHostTransferClient(config);
 
   const char* data = "This is a test string of data";
   size_t data_size = strlen(data);
@@ -73,7 +72,8 @@ TEST_CASE("TransferClient One Read/Write Request", "[transfer_client][one]")
   std::cout << "Received completion for read\n";
   std::cout << "ReqID: " << output.response->req_id << '\n';
   CHECK(output.response->req_id == 2);
-  CHECK(strncasecmp(output.data, data, data_size));
+  // strncasecmp returns 0 on match; bare CHECK(strncasecmp(...)) fails when data is correct.
+  CHECK(strncasecmp(output.data, data, data_size) == 0);
   CHECK(output.response->bytes == data_size);
 }
 
@@ -81,9 +81,7 @@ TEST_CASE("TransferClient Stress Test", "[transfer_client][stress][s]")
 {
   TransferClient client;
   TransferClientConfig config;
-  config.pcie_address = "21:00.0";
-  config.mmap_export_path = "/data/ssankhe/tc_export_desc";
-  config.buf_details_path = "/data/ssankhe/tc_buf_details.txt";
+  pd3_local::ApplyHostTransferClient(config);
 
   const char* data = "This is a test string of data";
   size_t data_size = strlen(data);
@@ -171,9 +169,7 @@ TEST_CASE("TransferClient Stress Test Many Requests", "[transfer_client][stress]
 {
   TransferClient client;
   TransferClientConfig config;
-  config.pcie_address = "21:00.0";
-  config.mmap_export_path = "/data/ssankhe/tc_export_desc";
-  config.buf_details_path = "/data/ssankhe/tc_buf_details.txt";
+  pd3_local::ApplyHostTransferClient(config);
 
   // const char* data = "This is a test string of data";
   // size_t data_size = strlen(data);
@@ -289,9 +285,7 @@ TEST_CASE("TransferClient Stress Test Many Requests Multi Threaded", "[transfer_
 {
   TransferClient client;
   TransferClientConfig config;
-  config.pcie_address = "21:00.0";
-  config.mmap_export_path = "/data/ssankhe/tc_export_desc";
-  config.buf_details_path = "/data/ssankhe/tc_buf_details.txt";
+  pd3_local::ApplyHostTransferClient(config);
 
   const char* data = "This is a test string of data";
   size_t data_size = strlen(data);

@@ -1,4 +1,5 @@
 #include "agent.hpp"
+#include "local_test_config.hpp"
 
 #include "PD3/buffer/types.hpp"
 #include "PD3/system/logger.hpp"
@@ -18,9 +19,9 @@ extern "C" {
   EXPORTED_SYMBOL void Agent_Init(const char* agent_id, const char* agent_key) {
     dpf::LOG_INFOF("Agent_Init: agent_id: {}, agent_key: {}", agent_id, agent_key);
     dpf::agent::AgentConfig config;
-    config.pcie_address = "21:00.0";
-    config.mmap_export_path = "/data/nsdi/agent_export_desc";
-    config.buf_details_path = "/data/nsdi/agent_buf_details.txt";
+    config.pcie_address = pd3_local::HostPcie();
+    config.mmap_export_path = pd3_local::Join(pd3_local::HostRuntimeDir(), "agent_export_desc");
+    config.buf_details_path = pd3_local::Join(pd3_local::HostRuntimeDir(), "agent_buf_details.txt");
     dpf::agent::Initialize(config);
   }
 

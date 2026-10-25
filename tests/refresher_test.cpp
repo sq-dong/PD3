@@ -280,12 +280,13 @@ TEST_CASE("Refresher Throughput 1 Shard Reads", "[refresher][tput]")
       }
 
       auto refresh_batch = *refresh_batch_ptr;
-      refresh_q->pop();
-
       local_consumed += refresh_batch->size;
       local_batches++;
       local_saw_non_read_batch = local_saw_non_read_batch || !refresh_batch->is_read;
       local_saw_partial_batch = local_saw_partial_batch || (refresh_batch->size != BATCH_SIZE);
+      refresh_batch->size = 0;
+      refresh_batch->bytes = 0;
+      refresh_q->pop();
     }
 
     consumed_requests.store(local_consumed, std::memory_order_release);

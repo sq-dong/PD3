@@ -539,6 +539,9 @@ void Prefetcher::ProcessRefreshRequestBatch(HostViewShard* shard, ClientRequestB
     // option 1: client calls check and return for newly evicted data, even before the write completes. falls back to local if not
     // option 2: the refresh batch is only sent when the client has successfully consumed the write ack
   }
+  // Free batch for HostViewRefresher ring reuse (producer waits on size==0).
+  batch->size = 0;
+  batch->bytes = 0;
 }
 
 } // namespace dpf

@@ -248,11 +248,11 @@ private:
   bool resp_meta_read_outstanding_ = false;
   bool resp_meta_write_outstanding_ = false;
 
-  char* agent_buffer_addr_;      // addr in host memory
-  size_t agent_buffer_len_;
-  BufferMetadata* agent_meta_;   // ours
-  BufferMetadata* host_agent_meta_; // copied to host
-  char* agent_buffer_dpu_addr_; // ours
+  char* agent_buffer_addr_ = nullptr;      // addr in host memory
+  size_t agent_buffer_len_ = 0;
+  BufferMetadata* agent_meta_ = nullptr;   // ours (in unified_buf / src_mmap)
+  BufferMetadata* host_agent_meta_ = nullptr; // staging in DPU agent mirror / dst_mmap
+  char* agent_buffer_dpu_addr_ = nullptr; // DPU-local AgentBuffer mirror
   int num_agent_buffer_reads_outstanding_ = 0;
   bool agent_metadata_write_outstanding_ = false;
 

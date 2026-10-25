@@ -1,6 +1,7 @@
 #include "PD3/transfer_engine/transfer_engine.hpp"
 #include "PD3/transfer_engine/types.hpp"
 #include "PD3/prefetcher/refresher.hpp"
+#include "local_test_config.hpp"
 
 #include <iostream>
 #include <atomic>
@@ -29,21 +30,11 @@ int main()
 
   TransferEngine engine;
   TransferEngineConfig config;
-  config.buf_agent_file_path = "";
-  config.buf_client_file_path = "/home/ubuntu/tc_buf_details.txt";
-  config.dpu_pcie_addr = "03:00.0";
-  config.enable_agent = false;
-  config.enable_transfer = true;
-  config.export_desc_agent_file_path = "";
-  config.export_desc_client_file_path = "/home/ubuntu/tc_export_desc";
+  pd3_local::ApplyDpuTransferEngine(config);
   config.max_wr = 2048;
   config.num_prefetch_slots = 8;
   config.num_slots = 8;
-  config.server_addr = "10.10.2.100";
-  config.local_addr = "10.10.2.201";
-  config.server_port = "51216";
   config.slot_size = 16384*2;
-  config.use_rdma = true;
 
   HostViewRefresher refresher;
   constexpr int QUEUE_DEPTH = 10000;
@@ -71,6 +62,9 @@ int main()
         if (batch->is_read) {
           count += batch->size;
         }
+        // Mark free so HostViewRefresher can reuse this preallocated batch.
+        batch->size = 0;
+        batch->bytes = 0;
         q->pop();
       }
     }

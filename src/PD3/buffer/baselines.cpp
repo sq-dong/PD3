@@ -109,9 +109,12 @@ bool LocklessAgentBuffer::CheckAndReturn(uint64_t key) {
     auto size = header->size;
     if (size == 0) {
         // This indicates a problem, likely a race with a producer wrapping around.
-        // Re-reading the producer index and retrying is the safest option.
-        producer_idx = producer_index_.value.load(std::memory_order_acquire);
-        continue;
+        // Original: re-read producer_idx and continue. Under multi-consumer races
+        // size can stay 0 while consumer_idx < producer_idx, spinning forever and
+        // hanging test joins. Bail out instead; caller can retry later.
+        // producer_idx = producer_index_.value.load(std::memory_order_acquire);
+        // continue;
+        return false;
     }
     consumer_idx += size;
   }
